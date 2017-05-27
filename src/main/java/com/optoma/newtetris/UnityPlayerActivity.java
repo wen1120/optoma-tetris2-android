@@ -75,7 +75,11 @@ public class UnityPlayerActivity extends Activity {
     private CameraSource mCameraSource;
 
     private void createFaceDetector() {
-        FaceDetector detector = new FaceDetector.Builder(getApplicationContext()).build();
+        FaceDetector detector = new FaceDetector.Builder(getApplicationContext())
+                // .setClassificationType(FaceDetector.ALL_CLASSIFICATIONS)
+                .setTrackingEnabled(true)
+                .setProminentFaceOnly(true)
+                .build();
 
         detector.setProcessor(
                 new MultiProcessor.Builder<Face>(new GraphicFaceTrackerFactory())
@@ -96,7 +100,7 @@ public class UnityPlayerActivity extends Activity {
             e.printStackTrace();
         }
     }
-    private class GraphicFaceTrackerFactory
+    private static class GraphicFaceTrackerFactory
             implements MultiProcessor.Factory<Face> {
 
         @Override
@@ -115,7 +119,7 @@ public class UnityPlayerActivity extends Activity {
     public static float maxY = Float.MIN_VALUE;
 
 
-    private class GraphicFaceTracker extends Tracker<Face> {
+    private static class GraphicFaceTracker extends Tracker<Face> {
         // other stuff
         private final int faceId;
 
@@ -132,21 +136,19 @@ public class UnityPlayerActivity extends Activity {
         @Override
         public void onUpdate(FaceDetector.Detections<Face> detectionResults,
                              Face face) {
-            if(face.getEulerZ() < minRotation) minRotation = face.getEulerZ();
-            if(face.getEulerZ() > maxRotation) maxRotation = face.getEulerZ();
-
             final PointF pos = face.getPosition();
-            if(pos.x < minX) minX = pos.x;
-            if(pos.x > maxX) maxX = pos.x;
-
-            if(pos.y < minY) minY = pos.y;
-            if(pos.y > maxY) maxY = pos.y;
-
             final float w = face.getWidth();
             final float h = face.getHeight();
 
+            float normX = (pos.x + w/2) / 640;
+            float normY = (pos.y + h/2) / 480;
+
+            if(normX < 0) normX = 0; if(normX > 1) normX = 1;
+            if(normY < 0) normY = 0; if(normY > 1) normY = 1;
+
             Log.d("ken", String.format("face %d (z: %f, pos: (%f, %f), w: %f, h: %f)", face.getId(), face.getEulerZ(), pos.x + w/2, pos.y + h/2, w, h));
-            UnityPlayer.UnitySendMessage("Controller", "UpdateFacePosition", (pos.x + w/2)+";"+(pos.y + h/2));
+            // Log.d("ken", String.format("sending %f, %f, %f", normX, normY, face.getEulerZ()));
+            UnityPlayer.UnitySendMessage("Controller", "UpdateFacePosition", normX+";"+normY+";"+face.getEulerZ()+";"+face.getIsSmilingProbability());
         }
 
         @Override
