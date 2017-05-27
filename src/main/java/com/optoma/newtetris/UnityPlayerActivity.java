@@ -1,24 +1,43 @@
 package com.optoma.newtetris;
 
+import com.google.android.gms.vision.CameraSource;
+import com.google.android.gms.vision.MultiProcessor;
+import com.google.android.gms.vision.Tracker;
+import com.google.android.gms.vision.face.Face;
+import com.google.android.gms.vision.face.FaceDetector;
 import com.unity3d.player.*;
+
+import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
+import android.graphics.PointF;
+import android.graphics.SurfaceTexture;
+import android.hardware.Camera;
+import android.os.Build;
 import android.os.Bundle;
+import android.support.v4.app.ActivityCompat;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.TextureView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 
-public class UnityPlayerActivity extends Activity
-{
+import java.io.IOException;
+
+public class UnityPlayerActivity extends Activity {
     protected UnityPlayer mUnityPlayer; // don't change the name of this variable; referenced from native code
+    public static final int CAMERA_PERM = 0;
 
     // Setup activity layout
-    @Override protected void onCreate (Bundle savedInstanceState)
-    {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
 
@@ -27,6 +46,120 @@ public class UnityPlayerActivity extends Activity
         mUnityPlayer = new UnityPlayer(this);
         setContentView(mUnityPlayer);
         mUnityPlayer.requestFocus();
+
+        // face detection
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                createFaceDetector();
+            } else {
+                requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERM);
+            }
+        }
+
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode != CAMERA_PERM) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+            return;
+        }
+
+        if (grantResults.length != 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            createFaceDetector();
+            return;
+        }
+
+    }
+
+    private CameraSource mCameraSource;
+
+    private void createFaceDetector() {
+        FaceDetector detector = new FaceDetector.Builder(getApplicationContext()).build();
+
+        detector.setProcessor(
+                new MultiProcessor.Builder<Face>(new GraphicFaceTrackerFactory())
+                        .build());
+
+        mCameraSource = new CameraSource.Builder(getApplicationContext(), detector)
+                .setRequestedPreviewSize(640, 480)
+                .setFacing(CameraSource.CAMERA_FACING_BACK)
+                .setRequestedFps(30.0f)
+                .build();
+
+        try {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            mCameraSource.start();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    private class GraphicFaceTrackerFactory
+            implements MultiProcessor.Factory<Face> {
+
+        @Override
+        public Tracker<Face> create(Face face) {
+            return new GraphicFaceTracker(face.getId());
+        }
+    }
+
+    public static float minRotation = Float.MAX_VALUE;
+    public static float maxRotation = Float.MIN_VALUE;
+
+    public static float minX = Float.MAX_VALUE;
+    public static float maxX = Float.MIN_VALUE;
+
+    public static float minY = Float.MAX_VALUE;
+    public static float maxY = Float.MIN_VALUE;
+
+
+    private class GraphicFaceTracker extends Tracker<Face> {
+        // other stuff
+        private final int faceId;
+
+        public GraphicFaceTracker(int initialFaceId) {
+            faceId = initialFaceId;
+            Log.d("ken", "got new tracker: "+initialFaceId);
+        }
+
+        @Override
+        public void onNewItem(int faceId, Face face) {
+            Log.d("ken", "got new face: "+faceId);
+        }
+
+        @Override
+        public void onUpdate(FaceDetector.Detections<Face> detectionResults,
+                             Face face) {
+            if(face.getEulerZ() < minRotation) minRotation = face.getEulerZ();
+            if(face.getEulerZ() > maxRotation) maxRotation = face.getEulerZ();
+
+            final PointF pos = face.getPosition();
+            if(pos.x < minX) minX = pos.x;
+            if(pos.x > maxX) maxX = pos.x;
+
+            if(pos.y < minY) minY = pos.y;
+            if(pos.y > maxY) maxY = pos.y;
+
+            final float w = face.getWidth();
+            final float h = face.getHeight();
+
+            Log.d("ken", String.format("face %d (z: %f, pos: (%f, %f), w: %f, h: %f)", face.getId(), face.getEulerZ(), pos.x + w/2, pos.y + h/2, w, h));
+            UnityPlayer.UnitySendMessage("Controller", "UpdateFacePosition", (pos.x + w/2)+";"+(pos.y + h/2));
+        }
+
+        @Override
+        public void onMissing(FaceDetector.Detections<Face> detectionResults) {
+            Log.d("ken", "face missing: "+faceId);
+        }
+
+        @Override
+        public void onDone() {
+            Log.d("ken", "face gone: "+faceId);
+
+            Log.d("ken", String.format("x: %f ~ %f, y: %f ~ %f, rot: %f ~ %f", minX, maxX, minY, maxY, minRotation, maxRotation));
+        }
     }
 
     @Override protected void onNewIntent(Intent intent)
@@ -42,6 +175,11 @@ public class UnityPlayerActivity extends Activity
     @Override protected void onDestroy ()
     {
         mUnityPlayer.quit();
+
+        if (mCameraSource != null) {
+            mCameraSource.release();
+        }
+
         super.onDestroy();
     }
 
@@ -49,6 +187,11 @@ public class UnityPlayerActivity extends Activity
     @Override protected void onPause()
     {
         super.onPause();
+
+        if(mCameraSource != null) {
+            mCameraSource.stop();
+        }
+
         mUnityPlayer.pause();
     }
 
@@ -56,6 +199,15 @@ public class UnityPlayerActivity extends Activity
     @Override protected void onResume()
     {
         super.onResume();
+
+        if(mCameraSource != null) {
+            try {
+                mCameraSource.start();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
         mUnityPlayer.resume();
     }
 
