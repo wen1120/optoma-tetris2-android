@@ -30,6 +30,7 @@ import android.view.Window;
 import android.view.WindowManager;
 
 import java.io.IOException;
+import java.util.Locale;
 
 public class UnityPlayerActivity extends Activity {
     protected UnityPlayer mUnityPlayer; // don't change the name of this variable; referenced from native code
@@ -78,7 +79,7 @@ public class UnityPlayerActivity extends Activity {
         FaceDetector detector = new FaceDetector.Builder(getApplicationContext())
                 // .setClassificationType(FaceDetector.ALL_CLASSIFICATIONS)
                 .setTrackingEnabled(true)
-                .setProminentFaceOnly(true)
+                // .setProminentFaceOnly(true)
                 .build();
 
         detector.setProcessor(
@@ -130,12 +131,18 @@ public class UnityPlayerActivity extends Activity {
 
         @Override
         public void onNewItem(int faceId, Face face) {
+
             Log.d("ken", "got new face: "+faceId);
+            UnityPlayer.UnitySendMessage("Controller", "FaceEnter", getFaceParams(face));
         }
 
         @Override
         public void onUpdate(FaceDetector.Detections<Face> detectionResults,
                              Face face) {
+            UnityPlayer.UnitySendMessage("Controller", "FaceMove", getFaceParams(face));
+        }
+
+        private String getFaceParams(Face face) {
             final PointF pos = face.getPosition();
             final float w = face.getWidth();
             final float h = face.getHeight();
@@ -146,9 +153,10 @@ public class UnityPlayerActivity extends Activity {
             if(normX < 0) normX = 0; if(normX > 1) normX = 1;
             if(normY < 0) normY = 0; if(normY > 1) normY = 1;
 
-            Log.d("ken", String.format("face %d (z: %f, pos: (%f, %f), w: %f, h: %f)", face.getId(), face.getEulerZ(), pos.x + w/2, pos.y + h/2, w, h));
+            // Log.d("ken", String.format("face %d (z: %f, pos: (%f, %f), w: %f, h: %f)", face.getId(), face.getEulerZ(), pos.x + w/2, pos.y + h/2, w, h));
             // Log.d("ken", String.format("sending %f, %f, %f", normX, normY, face.getEulerZ()));
-            UnityPlayer.UnitySendMessage("Controller", "UpdateFacePosition", normX+";"+normY+";"+face.getEulerZ()+";"+face.getIsSmilingProbability());
+
+            return String.format(Locale.US, "%d;%f;%f;%f", face.getId(), normX, normY, face.getEulerZ());
         }
 
         @Override
@@ -159,8 +167,9 @@ public class UnityPlayerActivity extends Activity {
         @Override
         public void onDone() {
             Log.d("ken", "face gone: "+faceId);
+            UnityPlayer.UnitySendMessage("Controller", "FaceExit", String.valueOf(faceId));
 
-            Log.d("ken", String.format("x: %f ~ %f, y: %f ~ %f, rot: %f ~ %f", minX, maxX, minY, maxY, minRotation, maxRotation));
+            // Log.d("ken", String.format("x: %f ~ %f, y: %f ~ %f, rot: %f ~ %f", minX, maxX, minY, maxY, minRotation, maxRotation));
         }
     }
 
