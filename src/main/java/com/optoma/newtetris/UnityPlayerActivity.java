@@ -30,7 +30,11 @@ import android.view.Window;
 import android.view.WindowManager;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 public class UnityPlayerActivity extends Activity {
     protected UnityPlayer mUnityPlayer; // don't change the name of this variable; referenced from native code
@@ -55,6 +59,8 @@ public class UnityPlayerActivity extends Activity {
             } else {
                 requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERM);
             }
+        } else {
+            createFaceDetector();
         }
 
     }
@@ -76,15 +82,21 @@ public class UnityPlayerActivity extends Activity {
     private CameraSource mCameraSource;
 
     private void createFaceDetector() {
+        Log.d("ken", "creating face detector...");
         FaceDetector detector = new FaceDetector.Builder(getApplicationContext())
                 // .setClassificationType(FaceDetector.ALL_CLASSIFICATIONS)
                 .setTrackingEnabled(true)
+                .setMode(FaceDetector.FAST_MODE)
                 // .setProminentFaceOnly(true)
                 .build();
 
         detector.setProcessor(
                 new MultiProcessor.Builder<Face>(new GraphicFaceTrackerFactory())
                         .build());
+
+        if (!detector.isOperational()) {
+            Log.w("ken", "Face detector dependencies are not yet available.");
+        }
 
         mCameraSource = new CameraSource.Builder(getApplicationContext(), detector)
                 .setRequestedPreviewSize(640, 480)
@@ -93,10 +105,8 @@ public class UnityPlayerActivity extends Activity {
                 .build();
 
         try {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                return;
-            }
             mCameraSource.start();
+            Log.d("ken", "camera source started!");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -110,16 +120,6 @@ public class UnityPlayerActivity extends Activity {
         }
     }
 
-    public static float minRotation = Float.MAX_VALUE;
-    public static float maxRotation = Float.MIN_VALUE;
-
-    public static float minX = Float.MAX_VALUE;
-    public static float maxX = Float.MIN_VALUE;
-
-    public static float minY = Float.MAX_VALUE;
-    public static float maxY = Float.MIN_VALUE;
-
-
     private static class GraphicFaceTracker extends Tracker<Face> {
         // other stuff
         private final int faceId;
@@ -131,8 +131,8 @@ public class UnityPlayerActivity extends Activity {
 
         @Override
         public void onNewItem(int faceId, Face face) {
-
             Log.d("ken", "got new face: "+faceId);
+
             UnityPlayer.UnitySendMessage("Controller", "FaceEnter", getFaceParams(face));
         }
 
@@ -147,7 +147,7 @@ public class UnityPlayerActivity extends Activity {
             final float w = face.getWidth();
             final float h = face.getHeight();
 
-            float normX = (pos.x + w/2) / 640;
+            float normX = (640 - (pos.x + w/2)) / 640;
             float normY = (pos.y + h/2) / 480;
 
             if(normX < 0) normX = 0; if(normX > 1) normX = 1;
@@ -156,12 +156,14 @@ public class UnityPlayerActivity extends Activity {
             // Log.d("ken", String.format("face %d (z: %f, pos: (%f, %f), w: %f, h: %f)", face.getId(), face.getEulerZ(), pos.x + w/2, pos.y + h/2, w, h));
             // Log.d("ken", String.format("sending %f, %f, %f", normX, normY, face.getEulerZ()));
 
-            return String.format(Locale.US, "%d;%f;%f;%f", face.getId(), normX, normY, face.getEulerZ());
+            return String.format(Locale.US, "%d;%f;%f;%f;%f",
+                    face.getId(), normX, normY, face.getEulerZ(), face.getWidth());
         }
 
         @Override
         public void onMissing(FaceDetector.Detections<Face> detectionResults) {
             Log.d("ken", "face missing: "+faceId);
+            UnityPlayer.UnitySendMessage("Controller", "FaceExit", String.valueOf(faceId));
         }
 
         @Override
